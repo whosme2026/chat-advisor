@@ -247,6 +247,14 @@ input,textarea,select{font-family:inherit;font-size:14px;color:var(--text)}
 .followup-input button:disabled{background:var(--text-3);cursor:not-allowed}
 .logout-btn{padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text-2);font-size:12px;font-weight:500;transition:all .15s}
 .logout-btn:hover{background:#fee;color:var(--red);border-color:#fecaca}
+.sync-ind{font-size:11px;color:var(--text-3);padding:4px 10px;border-radius:20px;background:var(--bg-soft);display:none;align-items:center;gap:5px;white-space:nowrap}
+.sync-ind.show{display:inline-flex}
+.sync-ind.syncing{color:#2563eb;background:#dbeafe}
+.sync-ind.syncing::before{content:"";width:6px;height:6px;border-radius:50%;background:#2563eb;animation:bounce 1s infinite;display:inline-block}
+.sync-ind.ok{color:#16a34a;background:#dcfce7}
+.sync-ind.ok::before{content:"✓"}
+.sync-ind.error{color:#dc2626;background:#fee2e2;cursor:help}
+.sync-ind.error::before{content:"⚠"}
 .anchor-row{
   display:none;align-items:center;gap:8px;margin-bottom:9px;font-size:12px;color:#92400e;
   background:#fff8e6;border:1px dashed #fde68a;border-radius:9px;padding:7px 10px;flex-wrap:wrap;
@@ -427,6 +435,7 @@ input,textarea,select{font-family:inherit;font-size:14px;color:var(--text)}
       <span>聊天参谋<small>Chat Advisor</small></span>
     </div>
     <div class="topbar-actions">
+      <span class="sync-ind" id="syncInd" title="数据同步状态"></span>
       <div class="user-chip" id="userChip" style="display:none"></div>
       <button class="logout-btn" id="logoutBtn" style="display:none" onclick="Auth.logout()" title="退出登录，回到登录界面">退出登录</button>
       <button class="btn ghost" onclick="App.openSettings()">⚙️ 设置</button>
@@ -584,9 +593,21 @@ const Store = {
         const d = await res.json();
         this.data.characters = d.characters||[];
         this.data.conversations = d.conversations||[];
+        // 校正 activeChar/activeConv：跨端登录时本地没有，自动选第一个角色 + 最近会话
+        if(!this.data.activeChar || !this.data.characters.find(c=>c.id===this.data.activeChar)){
+          this.data.activeChar = this.data.characters[0]?.id || null;
+        }
+        if(this.data.activeChar){
+          if(!this.data.activeConv || !this.data.conversations.find(c=>c.id===this.data.activeConv && c.charId===this.data.activeChar)){
+            const convs=this.data.conversations.filter(c=>c.charId===this.data.activeChar).sort((a,b)=>b.updatedAt-a.updatedAt);
+            this.data.activeConv = convs[0]?.id || null;
+          }
+        } else { this.data.activeConv = null; }
         // 缓存到本地（离线可用）
         localStorage.setItem('ca_chars_cache', JSON.stringify(this.data.characters));
         localStorage.setItem('ca_convs_cache', JSON.stringify(this.data.conversations));
+        localStorage.setItem('ca_activeChar', this.data.activeChar||'');
+        localStorage.setItem('ca_activeConv', this.data.activeConv||'');
       }catch(e){
         // 离线/失败：用本地缓存
         this.data.characters = JSON.parse(localStorage.getItem('ca_chars_cache')||'[]');
@@ -598,6 +619,7 @@ const Store = {
 
   /* —— 保存：本地缓存立即写，服务器防抖上传（settings 只存本地）—— */
   _saveTimer: null,
+  _syncStatus: 'idle',
   save(){
     localStorage.setItem('ca_chars_cache', JSON.stringify(this.data.characters));
     localStorage.setItem('ca_convs_cache', JSON.stringify(this.data.conversations));
@@ -606,16 +628,26 @@ const Store = {
     localStorage.setItem('ca_activeConv', this.data.activeConv||'');
     if(!this.token()) return; // 未登录不同步
     clearTimeout(this._saveTimer);
-    this._saveTimer = setTimeout(async ()=>{
-      try{
-        const res = await fetch(this.apiBase()+'/api/data', {
-          method:'PUT',
-          headers:{'Content-Type':'application/json','Authorization':'Bearer '+this.token()},
-          body: JSON.stringify({characters:this.data.characters, conversations:this.data.conversations})
-        });
-        if(res.status===401){ this.setAuth(null); toast('登录已过期，请重新登录'); setTimeout(()=>Auth.show(),1000); }
-      }catch(e){ console.warn('同步到云端失败(离线?)，已存本地缓存'); }
-    }, 700);
+    this._saveTimer = setTimeout(()=>this.saveNow(), 700);
+  },
+  async saveNow(keepalive){
+    if(!this.token()) return;
+    this._setSync('syncing');
+    try{
+      const res = await fetch(this.apiBase()+'/api/data', {
+        method:'PUT',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+this.token()},
+        body: JSON.stringify({characters:this.data.characters, conversations:this.data.conversations}),
+        keepalive: !!keepalive
+      });
+      if(res.status===401){ this.setAuth(null); this._setSync('error'); toast('登录已过期，请重新登录'); setTimeout(()=>Auth.show(),1000); }
+      else if(res.ok){ this._setSync('ok'); }
+      else { this._setSync('error'); console.warn('同步失败 HTTP', res.status); }
+    }catch(e){ this._setSync('error'); console.warn('同步失败(网络?)', e.message); }
+  },
+  _setSync(s){
+    this._syncStatus=s;
+    if(typeof App!=='undefined'&&App.onSyncStatus) try{App.onSyncStatus(s);}catch(e){}
   },
 
   uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); },
@@ -673,6 +705,46 @@ const App = {
     this.renderCharList();
     this.renderChat();
     this.renderAnalysis();
+    // 页面关闭前立即同步（keepalive 保证请求发出）
+    if(!this._boundUnload){ this._boundUnload=true; window.addEventListener('beforeunload',()=>{ if(Store.isLoggedIn()) Store.saveNow(true); }); }
+    // 每 30 秒静默拉取云端（多端准实时同步：电脑改了，手机30秒内能看到）
+    if(!this._syncTimer){ this._syncTimer=setInterval(()=>this.pullCloud(), 30000); }
+  },
+  onSyncStatus(s){
+    const el=$('#syncInd'); if(!el) return;
+    const map={syncing:['syncing show','同步中…'],ok:['ok show','已同步'],error:['error show','同步失败 点击重试'],idle:['','']};
+    const [cls,txt]=map[s]||['',''];
+    el.className='sync-ind '+cls; el.textContent=txt;
+    el.onclick = s==='error' ? ()=>Store.saveNow() : null;
+    if(s==='ok'){ clearTimeout(this._okT); this._okT=setTimeout(()=>{ el.className='sync-ind'; el.textContent=''; },2500); }
+  },
+  async pullCloud(){
+    if(!Store.isLoggedIn()) return;
+    // 用户正在输入消息时不打断
+    const ta=$('#msgInput'); if(ta && document.activeElement===ta && ta.value.trim()) return;
+    try{
+      const res=await fetch(Store.apiBase()+'/api/data',{headers:{'Authorization':'Bearer '+Store.token()}});
+      if(!res.ok) return;
+      const d=await res.json();
+      const cloudChars=JSON.stringify(d.characters||[]);
+      const cloudConvs=JSON.stringify(d.conversations||[]);
+      if(cloudChars!==JSON.stringify(Store.data.characters)||cloudConvs!==JSON.stringify(Store.data.conversations)){
+        Store.data.characters=d.characters||[];
+        Store.data.conversations=d.conversations||[];
+        localStorage.setItem('ca_chars_cache',cloudChars);
+        localStorage.setItem('ca_convs_cache',cloudConvs);
+        if(!Store.data.activeChar || !Store.data.characters.find(c=>c.id===Store.data.activeChar)){
+          Store.data.activeChar=Store.data.characters[0]?.id||null;
+        }
+        if(Store.data.activeChar){
+          if(!Store.data.activeConv || !Store.data.conversations.find(c=>c.id===Store.data.activeConv)){
+            const cv=Store.data.conversations.filter(c=>c.charId===Store.data.activeChar).sort((a,b)=>b.updatedAt-a.updatedAt);
+            Store.data.activeConv=cv[0]?.id||null;
+          }
+        }
+        this.renderCharList(); this.renderChat(); this.renderAnalysis();
+      }
+    }catch(e){}
   },
   renderUserChip(){
     const chip=$('#userChip'); const u=Store.user();
