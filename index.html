@@ -211,6 +211,42 @@ input,textarea,select{font-family:inherit;font-size:14px;color:var(--text)}
 .send-btn.note-btn:hover{background:#d97706}
 .composer-hint{font-size:11px;color:var(--text-3);margin-top:7px;line-height:1.6}
 .composer-hint b{color:var(--text-2)}
+/* 引用条（输入框上方） */
+.quote-bar{display:none;align-items:center;gap:8px;margin-bottom:8px;padding:7px 10px;background:var(--primary-soft);border-left:3px solid var(--primary);border-radius:8px;font-size:12px;color:var(--text-2)}
+.quote-bar.show{display:flex}
+.quote-bar .qlbl{color:var(--primary);font-weight:700;flex-shrink:0}
+.quote-bar .qtext{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.quote-bar .qcancel{color:var(--text-3);cursor:pointer;font-size:16px;line-height:1;flex-shrink:0}
+.quote-bar .qcancel:hover{color:var(--red)}
+/* 消息内的引用块 */
+.msg-quote{display:flex;align-items:center;gap:6px;padding:5px 9px;margin-bottom:6px;background:rgba(0,0,0,.06);border-left:2px solid rgba(0,0,0,.25);border-radius:6px;font-size:11px;color:var(--text-2);cursor:pointer}
+.msg.me .msg-quote{background:rgba(255,255,255,.18);border-left-color:rgba(255,255,255,.4);color:rgba(255,255,255,.9)}
+.msg-quote .qfrom{font-weight:600;flex-shrink:0}
+.msg-quote .qtxt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 消息操作按钮组 */
+.msg-acts{position:absolute;top:-10px;right:6px;display:none;gap:3px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:2px;box-shadow:var(--shadow);z-index:2}
+.msg.me .msg-acts{right:auto;left:6px}
+.msg:hover .msg-acts{display:flex}
+.msg-act{padding:3px 7px;border-radius:5px;font-size:10px;color:var(--text-2);cursor:pointer;white-space:nowrap}
+.msg-act:hover{background:var(--primary-soft);color:var(--primary)}
+.msg-act.del:hover{background:#fee;color:var(--red)}
+/* 追问区 */
+.followup-area{margin-top:14px;border-top:1px dashed var(--border);padding-top:12px}
+.followup-title{font-size:12px;font-weight:700;color:var(--text-2);margin-bottom:8px;display:flex;align-items:center;gap:5px}
+.followup-history{margin-bottom:10px}
+.fu-item{padding:9px 12px;border-radius:9px;margin-bottom:7px;font-size:12.5px;line-height:1.6}
+.fu-item.user{background:var(--primary-soft);color:var(--text)}
+.fu-item.user::before{content:"补充/追问：";font-weight:700;color:var(--primary);display:block;font-size:10px;margin-bottom:3px}
+.fu-item.ai{background:var(--bg-soft);color:var(--text)}
+.fu-item.ai::before{content:"AI 回应：";font-weight:700;color:var(--text-2);display:block;font-size:10px;margin-bottom:3px}
+.followup-input{display:flex;gap:8px;align-items:flex-end}
+.followup-input textarea{flex:1;resize:none;border:1px solid var(--border);border-radius:9px;padding:8px 11px;min-height:38px;max-height:100px;background:var(--card);font-size:12.5px}
+.followup-input textarea:focus{outline:none;border-color:var(--primary)}
+.followup-input button{padding:8px 14px;border-radius:9px;background:var(--primary);color:#fff;font-size:12px;font-weight:600;white-space:nowrap}
+.followup-input button:hover{background:var(--primary-dark)}
+.followup-input button:disabled{background:var(--text-3);cursor:not-allowed}
+.logout-btn{padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text-2);font-size:12px;font-weight:500;transition:all .15s}
+.logout-btn:hover{background:#fee;color:var(--red);border-color:#fecaca}
 .anchor-row{
   display:none;align-items:center;gap:8px;margin-bottom:9px;font-size:12px;color:#92400e;
   background:#fff8e6;border:1px dashed #fde68a;border-radius:9px;padding:7px 10px;flex-wrap:wrap;
@@ -392,6 +428,7 @@ input,textarea,select{font-family:inherit;font-size:14px;color:var(--text)}
     </div>
     <div class="topbar-actions">
       <div class="user-chip" id="userChip" style="display:none"></div>
+      <button class="logout-btn" id="logoutBtn" style="display:none" onclick="Auth.logout()" title="退出登录，回到登录界面">退出登录</button>
       <button class="btn ghost" onclick="App.openSettings()">⚙️ 设置</button>
       <button class="btn primary" onclick="App.openCharacterEditor()">＋ 新建对象</button>
     </div>
@@ -621,6 +658,8 @@ const App = {
   async init(){
     this.checkProtocol();
     this.currentSender='me';
+    this.quoting=null;
+    this.analysisThread=null;
     if(Store.isLoggedIn()){
       try{ await Store.load(); this.showApp(); }
       catch(e){ Auth.show(); }
@@ -637,8 +676,9 @@ const App = {
   },
   renderUserChip(){
     const chip=$('#userChip'); const u=Store.user();
-    if(u){ chip.style.display='flex'; chip.innerHTML=`<div class="ava">${esc((u.username||'?').slice(0,1))}</div><span>${esc(u.username)}</span><span class="logout" onclick="Auth.logout()" title="退出登录">⏻</span>`; }
-    else chip.style.display='none';
+    const lb=$('#logoutBtn');
+    if(u){ chip.style.display='flex'; chip.innerHTML=`<div class="ava">${esc((u.username||'?').slice(0,1))}</div><span>${esc(u.username)}</span>`; if(lb) lb.style.display='inline-flex'; }
+    else { chip.style.display='none'; if(lb) lb.style.display='none'; }
   },
 
   checkProtocol(){
@@ -811,6 +851,7 @@ const App = {
           <select id="anchorSel" onchange="App.applyAnchor()">${this.anchorOptions(conv)}</select>
           <span class="anchor-hint" id="anchorHint">${this.anchorHintText(conv)}</span>
         </div>
+        <div class="quote-bar" id="quoteBar"></div>
         <div class="input-row">
           <textarea id="msgInput" placeholder="${noteMode?'输入你的疑问或想法，AI 会以锚点之前的对话为背景作答…':'输入这句话的内容…（Enter 发送，Shift+Enter 换行）'}" rows="1"></textarea>
           <button class="send-btn ${noteMode?'note-btn':''}" id="sendBtn" onclick="App.sendMsg()" title="发送">${noteMode?'🤔':'➤'}</button>
@@ -833,6 +874,7 @@ const App = {
     ta.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); this.sendMsg(); } });
     const body=$('#chatBody'); if(body) body.scrollTop=body.scrollHeight;
     this.updateComposerHint();
+    this.renderQuoteBar();
     this.updateFocusBox();
   },
 
@@ -887,11 +929,23 @@ const App = {
     const isNote=m.sender==='note';
     const avaText=isNote?'💭':(m.sender==='me'?'我':esc(c.name.slice(0,1)));
     const senderLabel=isNote?'想法':(m.sender==='me'?'我':c.name);
+    let quoteHtml='';
+    if(m.quoteId){
+      const conv=Store.activeConv();
+      const qm=conv&&conv.messages.find(x=>x.id===m.quoteId);
+      if(qm){
+        const qfrom=qm.sender==='me'?'我':(qm.sender==='note'?'想法':c.name);
+        quoteHtml=`<div class="msg-quote" onclick="event.stopPropagation();App.selectMsg('${qm.id}')"><span class="qfrom">${esc(qfrom)}：</span><span class="qtxt">${esc(qm.text)}</span></div>`;
+      }
+    }
     return `<div class="msg ${m.sender} ${Store.selectedMsgId===m.id?'selected':''}" data-id="${m.id}">
       <div class="ava">${avaText}</div>
       <div class="msg-col">
-        <div class="msg-bubble" onclick="App.selectMsg('${m.id}')">${esc(m.text).replace(/\n/g,'<br>')}
-          <button class="msg-del" onclick="event.stopPropagation();App.delMsg('${m.id}')" title="删除">×</button>
+        <div class="msg-bubble" onclick="App.selectMsg('${m.id}')">${quoteHtml}${esc(m.text).replace(/\n/g,'<br>')}
+          <div class="msg-acts">
+            <span class="msg-act" onclick="event.stopPropagation();App.quoteMsg('${m.id}')" title="引用这句话">↩ 引用</span>
+            <span class="msg-act del" onclick="event.stopPropagation();App.delMsg('${m.id}')" title="删除">删除</span>
+          </div>
         </div>
         <div class="msg-meta">
           <span>${esc(fmtMsgTime(m.time))}</span>
@@ -899,6 +953,24 @@ const App = {
         </div>
       </div>
     </div>`;
+  },
+  quoteMsg(id){
+    const conv=Store.activeConv(); if(!conv) return;
+    const m=conv.messages.find(x=>x.id===id); if(!m) return;
+    this.quoting={id, text:m.text, sender:m.sender};
+    this.renderQuoteBar();
+    const ta=$('#msgInput'); if(ta) ta.focus();
+  },
+  cancelQuote(){ this.quoting=null; this.renderQuoteBar(); },
+  renderQuoteBar(){
+    const bar=$('#quoteBar');
+    if(!bar) return;
+    if(this.quoting){
+      const conv=Store.activeConv(); const c=conv?Store.getChar(conv.charId):null;
+      const from=this.quoting.sender==='me'?'我':(this.quoting.sender==='note'?'想法':(c?c.name:'对方'));
+      bar.innerHTML=`<span class="qlbl">↩ 引用回复</span><span class="qtext">${esc(from)}：${esc(this.quoting.text)}</span><span class="qcancel" onclick="App.cancelQuote()">×</span>`;
+      bar.classList.add('show');
+    } else { bar.classList.remove('show'); bar.innerHTML=''; }
   },
   defaultMsgTime(){
     // default = last message time + 1 min, or now
@@ -929,16 +1001,16 @@ const App = {
     const time=localInputToTs(timeInput?timeInput.value:'');
     const conv=Store.activeConv(); if(!conv) return;
     const msg={id:Store.uid(),sender:this.currentSender,text,time};
+    if(this.quoting){ msg.quoteId=this.quoting.id; }
     conv.messages.push(msg);
     conv.updatedAt=Date.now();
     if(conv.messages.length===1) conv.title=text.slice(0,16);
-    // if note, auto-select it for analysis
-    if(this.currentSender==='note'){ Store.selectedMsgId=msg.id; }
-    else { Store.selectedMsgId=null; }
+    this.quoting=null;
+    if(this.currentSender==='note'){ Store.selectedMsgId=msg.id; this.analysisThread=null; }
+    else { Store.selectedMsgId=null; this.analysisThread=null; }
     Store.save();
     this.renderChat();
     this.renderAnalysis();
-    // if note, auto-run analysis
     if(this.currentSender==='note'){ setTimeout(()=>this.analyze(),150); }
   },
   delMsg(id){
@@ -1063,8 +1135,9 @@ const App = {
     content.innerHTML=`<div style="text-align:center;color:var(--text-3);padding:30px"><div style="font-size:30px;margin-bottom:10px">${isNote?'🤔':'🔍'}</div>${isNote?'正在结合此前的对话情景思考你的问题…':'正在解读这句话…'}</div>`;
     try{
       const result=Store.data.settings.apiKey
-        ? await this.callAI(c,background,target,sorted)
+        ? await this.callAI(c,background,target,sorted,null)
         : this.localAnalyze(c,background,target,sorted);
+      this.analysisThread={target,background,allSorted:sorted,isNote,char:c,firstResult:result,history:[]};
       this.renderAnalysisResult(result,isNote);
     }catch(e){
       const msg=this.explainError(e,e._httpStatus);
@@ -1075,17 +1148,54 @@ const App = {
     }
   },
 
-  async callAI(char, background, target, allSorted){
+  async callAI(char, background, target, allSorted, followUpText){
     const s=Store.data.settings;
     const styleMap={sharp:'犀利直白，一针见血，看破也说破',gentle:'温和体贴，顾及对方感受，讲究共情',playful:'俏皮幽默，轻松破冰，带点调侃',strategic:'策略博弈，目标导向，权衡利弊'};
     const charName=char.name;
     const bgText=background.length?background.map(m=>`【${m.sender==='me'?'我':m.sender==='note'?'(我的想法)':charName}】【${fmtMsgTime(m.time)}】${m.text}`).join('\n'):'（此前暂无对话）';
     const isNote=target.sender==='note';
     const targetLabel=isNote?'我的想法/疑问':(target.sender==='me'?'我':charName);
+    // 引用关系：这句话是对某条消息的回应
+    let quoteInfo='';
+    if(target.quoteId){
+      const qm=background.find(x=>x.id===target.quoteId)||allSorted.find(x=>x.id===target.quoteId);
+      if(qm){
+        const qfrom=qm.sender==='me'?'我':(qm.sender==='note'?'想法':charName);
+        quoteInfo=`\n【关键：这句话是对引用内容的回应】\n引用的原话：【${qfrom}】${qm.text}\n当前要分析的"${target.text}"是用户对上面这句的回应/回答。请据此判断其真实含义（比如是认真回应、敷衍、转移焦点、反击等）。\n`;
+      }
+    }
 
     let prompt;
-    if(isNote){
-      prompt=`你是一位资深的人际沟通与心理分析专家，擅长结合对话情境解答用户的情感/沟通困惑。请以${styleMap[s.style]||'犀利直白'}的风格回答。
+    if(followUpText){
+      // 追问/补充背景模式
+      const prev=this.analysisThread;
+      const histText = prev.history.length ? prev.history.map((h,i)=> h.role==='user'?`用户追问${i+1}：${h.text}`:`AI回答${i+1}：${(h.result.answer||'').slice(0,180)}`).join('\n') : '（无）';
+      prompt=`你是一位资深的人际沟通与心理分析专家。用户在你的分析基础上补充了背景信息或继续追问，请以${styleMap[s.style]||'犀利直白'}的风格继续作答，要具体、可操作，避免空泛套话。
+
+【聊天对象档案】姓名：${charName} 性格：${char.personality||'未填写'} 背景：${char.background||'未填写'} 备注：${char.notes||'无'}
+
+【对话背景】
+${bgText}
+
+【被分析的那句话】
+【${targetLabel}】${target.text}${quoteInfo}
+【此前的追问历史】
+${histText}
+
+【用户这次的补充/追问】
+${followUpText}
+
+请结合补充信息给出更精准的判断。严格按JSON输出（不要其他内容，不要markdown代码块）：
+{
+  "mode":"followup",
+  "answer":"结合补充信息的回答与新洞察，4-6句，要具体到这个人和这个场景，给出明确判断和可操作建议",
+  "updated_suggestions":[
+    {"strategy":"策略名","text":"可直接复制发送的具体话术","reason":"为什么有效","timing":"何时发/什么情境下发","expected":"对方可能的反应"}
+  ]
+}
+updated_suggestions 仅当补充信息确实改变了建议时才给 1-2 条，否则给空数组 []。answer 是必填核心内容。`;
+    } else if(isNote){
+      prompt=`你是一位资深的人际沟通与心理分析专家，擅长结合对话情境解答情感/沟通困惑。请以${styleMap[s.style]||'犀利直白'}的风格回答，要具体、可操作，避免正确但空泛的废话。
 
 【聊天对象档案】
 姓名：${charName}
@@ -1100,21 +1210,21 @@ ${bgText}
 【用户此刻的疑问/想法】
 ${target.text}
 
-请基于以上对话情景和对方档案，回答用户的疑问。严格按以下 JSON 格式输出（不要输出任何其他内容，不要 markdown 代码块）：
+请基于以上情景和对方档案，回答用户疑问。严格按JSON输出（不要其他内容）：
 {
   "mode":"note",
-  "situation_read":"对当前对话局势的简短判断，2-3句（结合对方的状态和关系走向）",
+  "situation_read":"对当前对话局势的判断，2-3句，要结合对方性格和具体说过的内容，不要泛泛",
   "emotion":"对方此刻可能的情绪/态度，一句话",
   "emotion_type":"positive|negative|neutral|ambivalent 之一",
-  "answer":"针对用户疑问的详细解答，3-5句，给出洞察和建议",
+  "answer":"针对疑问的详细解答，4-6句，先给判断再给可操作建议，要具体到这个场景",
   "options":[
-    {"strategy":"策略名（如主动破冰/冷处理/直接表达/试探确认）","text":"具体可以怎么做或怎么回","reason":"为什么这样做","risk":"可能的风险或前提"}
+    {"strategy":"策略名","text":"具体怎么做/怎么回（可直接执行）","reason":"为什么这样做","timing":"何时做","expected":"对方可能的反应"}
   ]
 }
-options 给 2-3 条。`;
+options 给 1-2 条，每条必须具体可执行，不要"主动沟通"这种空话，要给出具体话术或行动。`;
     } else {
       const lastSender=target.sender;
-      prompt=`你是一位资深的人际沟通与心理分析专家，擅长解读对话中的潜台词、情绪与真实意图。请以${styleMap[s.style]||'犀利直白'}的风格分析以下对话中的指定语句。
+      prompt=`你是一位资深的人际沟通与心理分析专家，擅长解读对话中的潜台词、情绪与真实意图。请以${styleMap[s.style]||'犀利直白'}的风格分析，要深入具体、贴合这个人，避免正确但空泛的套话。
 
 【聊天对象档案】
 姓名：${charName}
@@ -1128,25 +1238,27 @@ ${bgText}
 
 【需要分析的这句话】
 【${targetLabel}】【${fmtMsgTime(target.time)}】${target.text}
+${quoteInfo}
+${lastSender==='them'?'这句话由对方说出，请重点分析其隐藏含义和未说出口的需求。':'这句话由"我"说出，请分析对方可能的反应及"我"下一步该怎么走。'}
 
-${lastSender==='them'?'这句话由对方说出，请重点分析其隐藏含义。':'这句话由"我"说出，请分析对方可能的反应及"我"的下一策略。'}
-
-请严格按以下 JSON 格式输出（不要输出任何其他内容，不要 markdown 代码块）：
+请严格按JSON输出（不要其他内容，不要markdown代码块）：
 {
   "mode":"msg",
-  "hidden_meaning":"这句话的潜台词/真实意图，2-4句",
-  "emotion":"说话方此刻的情绪状态，一句话",
+  "hidden_meaning":"潜台词/真实意图，3-4句，要具体到这个人和这句话，不要泛泛",
+  "core_need":"对方这句话背后真正的心理需求（如被关注/被认可/试探安全感/想结束/求安慰），1-2句",
+  "emotion":"说话方此刻的情绪，一句话",
   "emotion_type":"positive|negative|neutral|ambivalent 之一",
   "intention":"这句话想达成的目的或期待，1-2句",
-  "pitfalls":"如果直接顺着字面回应可能踩的坑，1-2点，没有则写无明显风险",
+  "trajectory":"如果顺其自然/不回应，关系走向预判，1句",
+  "pitfalls":"直接顺字面回会踩的坑，1-2点，没有则写无明显风险",
   "suggestions":[
-    {"strategy":"策略名（如幽默化解/真诚回应/转移话题/适度试探/以退为进）","text":"建议回复的具体内容（口语化中文）","reason":"为什么这样回","risk":"可能的风险或适用前提"}
+    {"strategy":"策略名（如幽默化解/真诚回应/转移话题/适度试探/以退为进）","text":"可直接复制发送的具体话术（口语化中文，日常聊天语气，15-40字）","reason":"为什么这样回有效","timing":"何时发（立刻/等几分钟/换时间）","expected":"对方可能怎么反应"}
   ]
 }
-suggestions 给 2-3 条，策略要多样化。${lastSender==='me'?'由于这是"我"说的，suggestions 偏向"下一步该如何推进/补救"而非回复对方。':''}`;
+suggestions 给 2 条，要差异化（一条稳一条进），text 必须是可以直接复制发出去的具体话术，禁止"你要主动沟通"这种无法直接执行的空话。${lastSender==='me'?'注意：这是"我"说的，suggestions 偏向"下一步如何推进/补救"。':''}`;
     }
 
-    const body=JSON.stringify({model:s.model,messages:[{role:'user',content:prompt}],temperature:0.8,response_format:{type:'json_object'}});
+    const body=JSON.stringify({model:s.model,messages:[{role:'user',content:prompt}],temperature:0.85,response_format:{type:'json_object'}});
     const res=await fetch(s.baseUrl.replace(/\/$/,'')+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.apiKey},body});
     if(!res.ok){ const t=await res.text().catch(()=> ''); const err=new Error('HTTP '+res.status+(t?' '+t.slice(0,120):'')); err._httpStatus=res.status; throw err; }
     const data=await res.json();
@@ -1208,32 +1320,82 @@ suggestions 给 2-3 条，策略要多样化。${lastSender==='me'?'由于这是
     const emoMap={positive:['pos','积极'],negative:['neg','消极'],neutral:['neu','中性'],ambivalent:['amb','暧昧']};
     const emo=emoMap[r.emotion_type]||['neu','中性'];
     const localTag=r._local?'<span style="color:var(--text-3);font-weight:400;font-size:11px">(本地规则分析，配置 API 效果更佳)</span>':'';
+    const suggestCard=(s,noteStyle)=>{
+      const timing=s.timing?`<div style="font-size:11px;color:var(--text-3);margin-top:5px">⏰ ${esc(s.timing)}</div>`:'';
+      const expected=s.expected?`<div style="font-size:11px;color:var(--text-3);margin-top:3px">👁 预期反应：${esc(s.expected)}</div>`:'';
+      const st=noteStyle?'style="color:#b45309;background:#fef3c7"':'';
+      const sx=noteStyle?'style="border-left-color:#f59e0b"':'';
+      const su=noteStyle?'style="color:#b45309"':'';
+      return `<div class="suggest" onclick='App.useSuggest(${JSON.stringify(JSON.stringify(s))})'>
+        <div class="suggest-head"><span class="suggest-strategy" ${st}>${esc(s.strategy)}</span></div>
+        <div class="suggest-text" ${sx}>${esc(s.text)}</div>
+        <div class="suggest-reason">${esc(s.reason)}</div>
+        ${timing}${expected}
+        <div class="suggest-use" ${su}>👆 点击使用</div>
+      </div>`;
+    };
     let html='';
     if(isNote||r.mode==='note'){
       html+=`<div class="section"><div class="section-title note-c">📊 局势判断</div><div class="card-box">${esc(r.situation_read)}</div></div>`;
       html+=`<div class="section"><div class="section-title note-c">💓 对方状态</div><div class="card-box">${esc(r.emotion)}<div class="emotion-row"><span class="chip ${emo[0]}">${emo[1]}</span></div></div></div>`;
       html+=`<div class="section"><div class="section-title note-c">💡 解答</div><div class="card-box">${esc(r.answer).replace(/\n/g,'<br>')}</div></div>`;
-      const opts=(r.options||[]).map(o=>`<div class="suggest" onclick='App.useSuggest(${JSON.stringify(JSON.stringify(o))})'>
-        <div class="suggest-head"><span class="suggest-strategy" style="color:#b45309;background:#fef3c7">${esc(o.strategy)}</span><span class="suggest-risk">${o.risk?'⚠️ '+esc(o.risk):''}</span></div>
-        <div class="suggest-text" style="border-left-color:#f59e0b">${esc(o.text)}</div>
-        <div class="suggest-reason">${esc(o.reason)}</div>
-        <div class="suggest-use" style="color:#b45309">👆 点击作为参考</div>
-      </div>`).join('');
+      const opts=(r.options||[]).map(o=>suggestCard(o,true)).join('');
       html+=`<div class="section"><div class="section-title note-c">🎯 可选行动 ${localTag}</div>${opts||'<div class="card-box">暂无</div>'}</div>`;
     } else {
       html+=`<div class="section"><div class="section-title">🎭 潜台词解读</div><div class="card-box">${esc(r.hidden_meaning)}</div></div>`;
+      if(r.core_need) html+=`<div class="section"><div class="section-title">🧠 背后需求</div><div class="card-box">${esc(r.core_need)}</div></div>`;
       html+=`<div class="section"><div class="section-title">💓 情绪状态</div><div class="card-box">${esc(r.emotion)}<div class="emotion-row"><span class="chip ${emo[0]}">${emo[1]}</span></div></div></div>`;
       html+=`<div class="section"><div class="section-title">🎯 意图</div><div class="card-box">${esc(r.intention)}</div></div>`;
+      if(r.trajectory) html+=`<div class="section"><div class="section-title">📈 走向预判</div><div class="card-box">${esc(r.trajectory)}</div></div>`;
       html+=`<div class="section"><div class="section-title">⚠️ 回应雷区</div><div class="card-box">${esc(r.pitfalls||'无明显风险')}</div></div>`;
-      const suggs=(r.suggestions||[]).map(s=>`<div class="suggest" onclick='App.useSuggest(${JSON.stringify(JSON.stringify(s))})'>
-        <div class="suggest-head"><span class="suggest-strategy">${esc(s.strategy)}</span><span class="suggest-risk">${s.risk?'⚠️ '+esc(s.risk):''}</span></div>
-        <div class="suggest-text">${esc(s.text)}</div>
-        <div class="suggest-reason">${esc(s.reason)}</div>
-        <div class="suggest-use">👆 点击使用此回复</div>
-      </div>`).join('');
+      const suggs=(r.suggestions||[]).map(s=>suggestCard(s,false)).join('');
       html+=`<div class="section"><div class="section-title">💡 建议回复 ${localTag}</div>${suggs||'<div class="card-box">暂无建议</div>'}</div>`;
     }
+    // 追问历史
+    const th=this.analysisThread;
+    if(th&&th.history&&th.history.length){
+      html+=`<div class="followup-area"><div class="followup-title">💬 追问记录</div><div class="followup-history">`;
+      th.history.forEach(h=>{
+        if(h.role==='user'){ html+=`<div class="fu-item user">${esc(h.text).replace(/\n/g,'<br>')}</div>`; }
+        else {
+          const extra=(h.result.updated_suggestions||[]).map(s=>suggestCard(s,false)).join('');
+          html+=`<div class="fu-item ai">${esc(h.result.answer||'').replace(/\n/g,'<br>')}${extra}</div>`;
+        }
+      });
+      html+=`</div></div>`;
+    }
+    // 追问输入框（本地分析不支持）
+    if(th && !r._local){
+      html+=`<div class="followup-area">
+        <div class="followup-title">✏️ 补充背景 / 继续追问</div>
+        <div class="followup-input">
+          <textarea id="followupInput" placeholder="补充聊天里看不到的信息（如：他今天被老板骂了 / 其实我上周拒绝过他），或继续追问…" rows="1"></textarea>
+          <button id="followupBtn" onclick="App.followUp()">追问</button>
+        </div>
+      </div>`;
+    }
     $('#analysisContent').innerHTML=`<div class="analysis-result">${html}</div>`;
+    const fi=$('#followupInput');
+    if(fi){ fi.addEventListener('input',()=>{fi.style.height='auto';fi.style.height=Math.min(fi.scrollHeight,100)+'px';}); fi.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();this.followUp();}}); }
+  },
+
+  async followUp(){
+    const fi=$('#followupInput'); if(!fi) return;
+    const text=fi.value.trim(); if(!text){ toast('请输入补充信息或追问'); return; }
+    const th=this.analysisThread; if(!th){ toast('请先分析一次'); return; }
+    const btn=$('#followupBtn'); if(btn){ btn.disabled=true; btn.textContent='思考中…'; }
+    try{
+      const result=Store.data.settings.apiKey
+        ? await this.callAI(th.char,th.background,th.target,th.allSorted,text)
+        : {answer:'（本地规则分析不支持追问，请配置 AI API 后体验）',updated_suggestions:[],_local:true};
+      th.history.push({role:'user',text});
+      th.history.push({role:'assistant',result});
+      this.renderAnalysisResult(th.firstResult, th.isNote);
+      const nf=$('#followupInput'); if(nf){ nf.value=''; nf.focus(); }
+    }catch(e){
+      const msg=this.explainError(e,e._httpStatus);
+      toast('追问失败：'+msg);
+    }finally{ if(btn){btn.disabled=false;btn.textContent='追问';} }
   },
 
   useSuggest(sJson){
