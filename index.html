@@ -118,7 +118,8 @@ input,textarea,select{font-family:inherit;font-size:14px;color:var(--text)}
 .empty-hint .big{font-size:34px;margin-bottom:10px;opacity:.5}
 
 /* ===== Center: chat ===== */
-.chat-wrap{display:flex;flex-direction:column;background:var(--bg);overflow:hidden}
+.chat-wrap{display:flex;flex-direction:column;background:var(--bg);overflow:hidden;min-height:0}
+#chatArea{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden}
 .chat-header{
   padding:14px 22px;background:var(--card);border-bottom:1px solid var(--border);
   display:flex;align-items:center;gap:12px;
