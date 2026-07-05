@@ -15,6 +15,22 @@
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-btn.svg)](https://render.com/deploy?repo=https://github.com/whosme2026/chat-advisor)
 
+## ⚠️ 重要：配置数据持久化（否则每次部署/更新账号数据会丢失！）
+Render 免费层的文件系统是临时的，每次部署/重启 data/ 目录会被清空。必须配一个外部数据库，数据才能持久保留。
+
+推荐用 **Neon**（免费 PostgreSQL，永久免费 0.5GB，注册简单）：
+
+1. 注册 Neon（免费）：https://neon.tech （可用 GitHub/Google 账号登录）
+2. 新建一个项目（默认即可），会得到一个连接字符串，形如：
+   `postgresql://user:password@ep-xxx.region.aws.neon.tech/dbname?sslmode=require`
+3. 回到 Render，打开你的 chat-advisor 服务 → **Environment** 标签 → 新增环境变量：
+   - Key：`DATABASE_URL`
+   - Value：上面 Neon 的连接字符串
+4. （同时确认已有 `JWT_SECRET`，没有就加一个随机字符串）
+5. 保存后 Render 自动重新部署。之后无论怎么更新代码、重新部署，账号和数据都不会丢
+
+> 不配 DATABASE_URL 也能跑，但仅限本机开发用；部署到云端后每次更新都会丢账号。
+
 部署完成后：
 1. 打开 Render 给的公网网址
 2. 注册一个账号
@@ -26,10 +42,10 @@
 npm install
 node server.js
 ```
-浏览器打开 http://localhost:8000
+浏览器打开 http://localhost:8000 （本机默认用 JSON 文件存储，无需数据库）
 
 ## 技术栈
 - 前端：单文件 HTML + CSS + JS
 - 后端：Node.js + Express + JWT
-- 存储：JSON 文件（按用户隔离）
+- 存储：PostgreSQL（Neon，云端持久）/ JSON 文件（本机回退），按用户隔离
 - AI：兼容 OpenAI 格式的任意接口（DeepSeek/OpenAI/智谱等）
