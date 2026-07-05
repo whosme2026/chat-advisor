@@ -1,0 +1,17 @@
+{
+  "name": "chat-advisor",
+  "version": "1.0.0",
+  "description": "聊天参谋 - 对话潜台词分析与回复建议，支持多端同步与账户隔离",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
