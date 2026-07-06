@@ -401,8 +401,18 @@ input,textarea,select{font-family:inherit;font-size:14px;color:var(--text)}
   .main{grid-template-columns:240px 1fr 340px}
 }
 @media(max-width:860px){
-  .main{grid-template-columns:1fr}
+  .main{grid-template-columns:1fr;position:relative;padding-bottom:52px}
   .panel,.analysis{display:none}
+  .panel.mob-show,.analysis.mob-show{display:flex;position:absolute;inset:0;z-index:40;background:var(--card);max-width:100%}
+  .panel.mob-show .panel-head,.analysis.mob-show .analysis-head{padding-top:50px}
+  .mob-close{display:flex!important;position:absolute;top:10px;left:10px;z-index:41;width:34px;height:34px;border-radius:50%;background:var(--card);box-shadow:var(--shadow);align-items:center;justify-content:center;font-size:18px;color:var(--text-2);cursor:pointer}
+  .mob-tabs{display:flex;position:fixed;bottom:0;left:0;right:0;height:52px;background:var(--card);border-top:1px solid var(--border);z-index:50;box-shadow:0 -2px 12px rgba(0,0,0,.06)}
+  .mob-tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:10px;color:var(--text-3);cursor:pointer;transition:color .15s}
+  .mob-tab.on{color:var(--primary)}
+  .mob-tab .mt-ic{font-size:20px;line-height:1}
+}
+@media(min-width:861px){
+  .mob-tabs,.mob-close{display:none!important}
 }
 </style>
 </head>
@@ -472,6 +482,15 @@ input,textarea,select{font-family:inherit;font-size:14px;color:var(--text)}
       </div>
       <div class="analysis-body" id="analysisBody"></div>
     </aside>
+
+    <!-- 移动端底部导航 -->
+    <div class="mob-tabs" id="mobTabs">
+      <div class="mob-tab on" data-tab="chars" onclick="App.switchTab('chars')"><span class="mt-ic">👤</span>角色</div>
+      <div class="mob-tab" data-tab="chat" onclick="App.switchTab('chat')"><span class="mt-ic">💬</span>聊天</div>
+      <div class="mob-tab" data-tab="analysis" onclick="App.switchTab('analysis')"><span class="mt-ic">🧠</span>分析</div>
+    </div>
+    <!-- 浮层面板关闭按钮 -->
+    <button class="mob-close" id="mobCloseBtn" onclick="App.closeMobPanel()">←</button>
   </div>
 </div>
 
@@ -706,23 +725,47 @@ const App = {
     this.renderCharList();
     this.renderChat();
     this.renderAnalysis();
-    // 页面关闭前立即同步（keepalive 保证请求发出）
+    // 移动端默认显示聊天 tab，隐藏浮层面板
+    if(window.innerWidth<=860){ this.switchTab('chat'); }
+    // 页面关闭前立即同步
     if(!this._boundUnload){ this._boundUnload=true; window.addEventListener('beforeunload',()=>{ if(Store.isLoggedIn()) Store.saveNow(true); }); }
-    // 每 30 秒静默拉取云端（多端准实时同步：电脑改了，手机30秒内能看到）
+    // 每 30 秒静默拉取云端
     if(!this._syncTimer){ this._syncTimer=setInterval(()=>this.pullCloud(), 30000); }
   },
   onSyncStatus(s){
     const el=$('#syncInd'); if(!el) return;
-    const map={syncing:['syncing show','同步中…'],ok:['ok show','已同步'],error:['error show','同步失败 点击重试'],idle:['','']};
+    const map={syncing:['syncing show','同步中…'],ok:['ok show','已同步'],error:['error show','同步失败 点击重试'],pending:['ok show','🔄 云端有更新'],idle:['','']};
     const [cls,txt]=map[s]||['',''];
     el.className='sync-ind '+cls; el.textContent=txt;
-    el.onclick = s==='error' ? ()=>Store.saveNow() : null;
+    el.onclick = s==='error' ? ()=>Store.saveNow() : (s==='pending' ? ()=>{ this._pendingUpdate=false; this.renderCharList(); this.renderChat(); this.renderAnalysis(); el.className='sync-ind'; el.textContent=''; } : null);
     if(s==='ok'){ clearTimeout(this._okT); this._okT=setTimeout(()=>{ el.className='sync-ind'; el.textContent=''; },2500); }
+    if(s==='pending'){ // 不自动消失，等用户点击刷新
+      this._pendingUpdate=true;
+    }
+  },
+  /* ---- mobile tabs ---- */
+  closeMobPanel(){
+    const panel=$('.panel'); const analysis=$('.analysis');
+    if(panel){ panel.classList.remove('mob-show'); }
+    if(analysis){ analysis.classList.remove('mob-show'); }
+    $('#mobCloseBtn').style.display='none';
+    this.switchTab('chat');
+  },
+  switchTab(t){
+    const tabs=$('#mobTabs').querySelectorAll('.mob-tab');
+    tabs.forEach(x=>x.classList.toggle('on',x.dataset.tab===t));
+    const panel=$('.panel'); const analysis=$('.analysis'); const close=$('#mobCloseBtn');
+    panel.classList.remove('mob-show'); analysis.classList.remove('mob-show');
+    if(t==='chars'){ panel.classList.add('mob-show'); close.style.display='flex'; }
+    else if(t==='analysis'){ analysis.classList.add('mob-show'); close.style.display='flex'; }
+    else { close.style.display='none'; }
   },
   async pullCloud(){
     if(!Store.isLoggedIn()) return;
-    // 用户正在输入消息时不打断
+    // 用户正在输入时不打扰
     const ta=$('#msgInput'); if(ta && document.activeElement===ta && ta.value.trim()) return;
+    // 用户正在看分析（有分析结果展开着）不强制刷新，只提示
+    const ac=$('#analysisContent'); const hasResult=ac && ac.querySelector('.analysis-result');
     try{
       const res=await fetch(Store.apiBase()+'/api/data',{headers:{'Authorization':'Bearer '+Store.token()}});
       if(!res.ok) return;
@@ -743,7 +786,14 @@ const App = {
             Store.data.activeConv=cv[0]?.id||null;
           }
         }
-        this.renderCharList(); this.renderChat(); this.renderAnalysis();
+        if(hasResult){
+          // 用户正在看分析 → 不刷新界面，只在顶栏提示有更新
+          this._pendingUpdate=true;
+          this.onSyncStatus('pending');
+        } else {
+          // 没在看分析 → 静默更新界面
+          this.renderCharList(); this.renderChat(); this.renderAnalysis();
+        }
       }
     }catch(e){}
   },
